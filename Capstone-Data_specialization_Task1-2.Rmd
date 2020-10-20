@@ -1,0 +1,498 @@
+---
+title: "EDA Swiftkey - Capstone Project"
+author: "Mathias Barat"
+date: "21/09/2020"
+output: html_document
+---
+### Task1 and Task2 of the Data Science Capstone from JHU
+
+# 1 - SYNOPSIS
+
+Swiftkey dataset. The analysis and goal is to help Swiftkey company to predict words when users type on their keyboard.
+The prediction must be done from 1, 2 or 3 successive words entered.
+
+The present document is:
+  * giving an overview of the dataset used
+  * taking assumptions regarding the sampling approach as the dataset is quite big
+  * making an EDA
+  * giving some clues for the predictive model I will create
+
+```{r 1, message=FALSE, warning=FALSE}
+url <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+```
+
+# 2 - DATA-PREPROCESSING
+
+### GET THE DATASET
+Download:
+```{r 2, message=FALSE, warning=FALSE}
+
+if (!dir.exists("data/")){dir.create("data/")}
+if (!file.exists("data/Cousera-swiftkey.zip")){
+  download.file(url, destfile = "data/Cousera-swiftkey.zip")
+}
+```
+Unzip:
+```{r 3, message=FALSE, warning=FALSE}
+if (!dir.exists("final/")){
+  unzip("data/Cousera-swiftkey.zip")
+}
+rm(list = ls())
+```
+
+### OVERVIEW OF THE DATASET
+The dataset is from a corpus called HC Corpora collected by a web crawler.
+
+The dataset is composed of 4 folders :
+  
+  * de_DE : German language text files
+  * en_US : English language text files
+  * fi_FI : Finns language text files
+  * ru_RU : Russian language text files
+
+In each folder we can find 3 files corresponding to compilation of web published texts which have been gathered from :
+  * Blogs websites
+  * News website
+  * Twitter
+  
+Only english files will be used in the following study.
+
+### Natural Language Processing (NLP)
+The Natural language processing is a domain of data science developped to analyse the human languages.
+    * https://en.wikipedia.org/wiki/Natural_language_processing
+    
+Tools such as Text Mining (tm package in R) has been developped to process the human text data.
+  * https://cran.r-project.org/web/views/NaturalLanguageProcessing.html
+  
+Machine learning methods are now a standard in the domain.The present analysis will use it.
+
+The NLP can helps to analyse the languages for different purposes such as :
+
+Text and speech processing
+  * Optical character recognition (OCR)
+  * Speech recognition
+  * Speech segmentation
+  * Text-to-speech
+  * Word segmentation (Tokenization)
+
+Morphological analysis
+  * Lemmatization
+  * Morphological segmentation
+  * Part-of-speech tagging
+  * Stemming
+
+Syntactic analysis
+  * Grammar induction
+  * Sentence breaking (also known as "sentence boundary disambiguation")
+  * Parsing
+  
+Lexical semantics (of individual words in context)
+  * Lexical semantics
+  * Distributional semantics
+  * Named entity recognition (NER).
+  * Sentiment analysis (see also multimodal sentiment analysis).
+  * Terminology extraction
+  * Word sense disambiguation
+
+Relational Semantics
+  * Relationship extraction
+  * Semantic Parsing
+  * Semantic Role Labelling (see also implicit semantic role labelling below)
+
+Discourse (semantics beyond individual sentences)
+  * Coreference resolution
+  * Discourse analysis
+  * Implicit Semantic Role Labelling
+  * Recognizing Textual entailment
+
+Higher-level NLP applications
+  * Book generation
+  * Machine translation
+  * Natural language understanding (NLU)
+  * Question answering
+
+
+The training I had during the specialization will help me with :
+  * Preprocessing of the data : preparation of the dataset to be usable by ML and associated Data science tools (split, case, cleaning, removing )
+  * Analysis of the data : vectorization, bagging...
+  * Exploitation of the results
+  
+I will use also other data sources such as :
+  * Other NLP processing as example on Kaggle for instance
+  * Find datasets and their reproducible analysis in each language that can help me with the specificities of each.
+  * wordnet and similar databases
+  * list of profanes words
+
+### Loading the data
+```{r 4, message=FALSE, warning=FALSE}
+load_data <- function(){
+  # The 2 files are okay to be opened directly with UTF-8
+  con <- file("final/en_US/en_US.blogs.txt", "r")
+  dblog <<- readLines(con, encoding = "UTF-8", skipNul = TRUE, warn = FALSE)
+  close(con)
+  
+  con <- file("final/en_US/en_US.twitter.txt","r")
+  dtwit <<- readLines(con, encoding = "UTF-8", skipNul = TRUE, warn = FALSE)
+  close(con)
+  
+  # Binary mode because the file has special characters, the readlines method was blocked with the previous method
+  con <- file("final/en_US/en_US.news.txt", open="rb")
+  dnews <<- readLines(con, encoding = "UTF-8",skipNul = TRUE, warn = FALSE)
+  close(con)
+}
+```
+
+### sizes and format of the dataset
+```{r 5, message=FALSE, warning=FALSE}
+if (!file.exists("data/dat_sum.txt")){
+  # Load the dataset
+  load_data()
+  
+  # Intitalize the data summary
+  dat_sum <- file.info(dir("final/en_US/",recursive = TRUE, full.names = TRUE))[1]/1024^2
+  colnames(dat_sum) <- "Size_in_Mo"
+  dat_sum$Number_Of_Lines <- c(length(dblog),length(dnews),length(dtwit))
+  dat_sum$Number_of_Words <- c( sum(sapply(gregexpr("\\S+", dblog), length)),
+                      sum(sapply(gregexpr("\\S+", dnews), length)),
+                      sum(sapply(gregexpr("\\S+", dtwit), length)))
+  
+  dat_sum$Mean_words_per_line <- c(mean(sapply(gregexpr("\\S+", dblog), length)),
+                          mean(sapply(gregexpr("\\S+", dnews), length)),
+                          mean(sapply(gregexpr("\\S+", dtwit), length)))
+  
+  dat_sum$Max_Line <- sapply(list(dblog, dnews, dtwit), function(x){max(unlist(lapply(x, function(y) nchar(y))))})
+  
+  dat_sum$File <- c("Blogs",
+                    "News",
+                    "Twitter")
+  dat_sum <- as.data.frame(dat_sum)
+  write.table(dat_sum, "data/dat_sum.txt")
+}
+```
+
+
+### Sampling
+I will sample 0.5% of the Blogs data, 1% of the News data and 0.5% of the Twitter data, also I have created a reduced Sample dataset sample to work my algorythm and save time during my investigations at the end of the chunk:
+```{r 6, message=FALSE, warning=FALSE}
+
+if (!file.exists("data/dataSample.txt")){
+  load_data()
+  set.seed(333)
+  dat_sum <- read.table("data/dat_sum.txt")
+  dat_sum$Percentage <- c(0.005,0.01,0.005)
+  dat_sum$Sample_size <- dat_sum$Number_Of_Lines* dat_sum$Percentage
+  write.table(dat_sum, "data/dat_sum.txt")
+  
+  # Final Sample dataset
+  dblogS <- dblog[rbinom(n = dat_sum$Sample_size[1],
+                         size = 1,
+                         prob = dat_sum$Percentage[1]) == 1]
+  dnewsS <- dnews[rbinom( n = dat_sum$Sample_size[2],
+                          size = 1,
+                          prob = dat_sum$Percentage[2]) == 1]
+  dtwitS <- dtwit[rbinom( n = dat_sum$Sample_size[3],
+                          size = 1,
+                          prob = dat_sum$Percentage[3]) == 1]
+  
+  
+  # Creation of one frame
+  dataSample <- c(dblogS,dnewsS, dtwitS)
+  
+  # clean non latin characters
+  dataSample <- iconv(dataSample, "latin1", "ASCII", sub="")
+  
+  # Save my sample file
+  write(dataSample, "data/dataSample.txt")
+  write(sample(dataSample,size = 3000), "data/dataSampleWIP.txt")
+}
+rm(list = ls())
+```
+
+### Cleaning and Profanes words removal and Tokens Creation
+
+In order to ameliorate the dataset. I have decided to successively convert the sentences in Tokens and convert these into word tokens. 
+By this process I will increase the accuracy of my model as the ngrams won't include the sequences of words onto 2 sentences.
+```{r 7, message=FALSE, warning=FALSE}
+library(quanteda)
+Corpus <- readLines("data/dataSampleWIP.txt")
+Corpus <- readLines("data/dataSample.txt")
+Corpus <- corpus(Corpus)  
+
+# Get list of bad words to be excluded
+url_EN_prof = "https://raw.githubusercontent.com/rominf/profanity-filter/master/profanity_filter/data/en_profane_words.txt"
+if (!file.exists("data/prof_en.txt")){
+  download.file(url_EN_prof, destfile = "data/prof_en.txt")
+}
+con <- file("data/prof_en.txt")
+prof_en <- readLines(con)
+names(prof_en)<-"Bad Words"
+close(con)
+rm(con, url_EN_prof)
+
+# Sentence tokens Creation
+myTokens <- tokens(Corpus, remove_punct = TRUE, remove_numbers = TRUE, remove_url = TRUE, remove_symbols = TRUE, remove_separators = TRUE, what = "sentence")
+
+# Lower
+myTokens <- tokens_tolower(myTokens)
+
+# Word tokens creation:
+myTokens <- tokens(attr(myTokens, "types"), remove_punct = TRUE, remove_numbers = TRUE, remove_url = TRUE, remove_symbols = TRUE, remove_separators = TRUE, what="word")
+
+# Pattern creation for suppressing (emails, urls, twitters account...)
+patt <- c("\\b[A-Z a-z 0-9._ - ]*[@](.*?)[.]{1,3} \\b", # email
+          "(ftp|http)(s?)://.*\\b",                     # http
+          "[@][a-zA-Z]{1,25}")                          # twitt
+myTokens <- tokens_select(myTokens,
+                          pattern = patt,
+                          selection = "remove",
+                          valuetype = "regex")
+
+# Profanities
+myTokens <- tokens_remove(myTokens, prof_en)
+
+# Stopword
+myTokensSW <- tokens_remove(myTokens,stopwords(language = "en"))
+
+# Whitespaces removal
+myTokens <- tokens_remove(myTokens, " ")
+myTokensSW <- tokens_remove(myTokensSW, " ")
+
+length(attr(myTokens, "types"))
+length(attr(myTokensSW, "types"))
+rm(Corpus, dataSample, patt, prof_en)
+```
+The dictionary has 174112 words (173938 if we remove the Stop words). For the application we intend to build, the stop words must not be removed. I will then pust aside the stop word variables.
+World Cloud
+
+```{r 18, message=FALSE, warning=FALSE}
+textplot_wordcloud(dfm(myTokens), min_count = 20, random_order = FALSE,
+                   rotation = .5, 
+                   colors = RColorBrewer::brewer.pal(2,"Dark2"))
+textplot_wordcloud(dfm(myTokensSW), min_count = 20, random_order = FALSE,
+                   rotation = .5, 
+                   colors = RColorBrewer::brewer.pal(2,"Dark2"))
+rm(myTokensSW)
+```
+
+# 3 - Exploratory Data Analysis
+
+## Distribution of words
+### Ngrams with stopwords
+```{r 8, message=FALSE, warning=FALSE}
+library(ggplot2)
+for (i in seq(4)){
+  mydfm <- dfm(tokens_ngrams(myTokens,
+                             n = i,
+                             skip = 0L,
+                             concatenator = "_"))
+  mygram <- paste(as.character(i),"-Unigram", sep = "")
+  topf <- as.data.frame(topfeatures(mydfm,30),optional = TRUE)
+  colnames(topf) <- "Count"
+  topf$ngram <- rownames(topf)
+  g <- ggplot(data=topf, aes(x=Count, y = reorder(ngram, Count, decreasing=FALSE)))+
+            geom_col( stat = "Identity", fill="blue" ) +
+            ylab(mygram) +
+            xlab( "Frequency" )
+  print(g)
+}
+rm(mydfm, g, topf, i, mygram)
+```
+
+## Number of words for 50% and 90% of the frequencies
+texstat_frequency is all we need !
+```{r 16, message=FALSE, warning=FALSE}
+mydfm1.statf <- textstat_frequency(dfm(myTokens))
+
+j <- 0
+nfeatures <- sum(mydfm1.statf $frequency)
+t <- TRUE
+for(i in 1:length(mydfm1.statf $frequency)) {
+  j <- j + mydfm1.statf $frequency[i]
+  if(j >= 0.5*nfeatures & t){
+    word50 <-i
+    t<- FALSE
+    }
+  if(j >= 0.9*nfeatures){
+    word90 <-i
+    break}
+}
+print (paste("words to reach 50%:", word50))
+print (paste("words to reach 90%:", word90))
+rm(mydfm1.statf)
+```
+
+## Foreign words
+Remove from my tokens all the "non english" words, but also the typo errors. Really relevant for our model as we will work only from a knwn corpus
+```{r 17, message=FALSE, warning=FALSE}
+myTokens.foreign <- tokens_select(myTokens, names(data_int_syllables), selection = "remove")
+topfeatures(dfm(myTokens.foreign),30)
+```
+The "foreign words" are generally wrong typos. I need to keep some of them, like "facebook", "nba", "lol"...
+
+```{r}
+myWordKeep <- as.data.frame(topfeatures(dfm(myTokens.foreign),100))
+colnames(myWordKeep) <- "frequency"
+myWordKeep$word <- rownames(myWordKeep)
+rownames(myWordKeep)<- seq(1:length(myWordKeep$word))
+# Suppression of bad formulation such as "hasnt" or "shes" from the 100 top features.
+# I kept some acronyms and brand names such as "facebook", "avengers"
+# "lol", "idk" specific internet acronyms are kept also
+myWordKeep <- c("rt","dont","thats","didnt","ive","doesnt","hes","theres","youre","wasnt","couldnt","theyre","weve","wouldnt","1st","ppl") 
+dict <- append(names(data_int_syllables), myWordKeep)
+
+myTokens <- tokens_select(myTokens, dict, selection = "keep")
+rm(myTokens.foreign, myWordKeep)
+```
+
+
+
+### Reducing the number of words in the dictionary
+A simple and quick solution would be to suppress all the low frequency words from the dictionary. For instance, all the 1 or 2 time
+
+For instance here a list of 10 less used words (we can notice a famous League Of Legend character):
+```{r 19, message=FALSE, warning=FALSE}
+topfeatures(dfm(myTokens),10, decreasing = FALSE)
+```
+With this simple approach, I test to threshold the dfm for low frequencies features:
+```{r}
+freq <- ""
+percentage <- ""
+for (i in seq(3,10)){
+  mydfm <- dfm_trim(
+    dfm(myTokens),
+    min_termfreq = i
+  )
+
+  # Frequency
+  percentage_saved <-  (nfeat(dfm(myTokens)) - nfeat(mydfm))/ nfeat(dfm(myTokens))
+  freq <- append(freq, i)
+  percentage <- append(percentage, percentage_saved*100)
+  lowfreq_features <- as.data.frame(cbind(percentage, freq))
+}
+lowfreq_features
+rm(mydfm, lowfreq_features, i, j, myWordKeep, nfeatures, percentage, percentage_saved, word50, word90, t, dict, freq)
+```
+Just as an example, by suppressing the words which are appearing 3 times maximum, we can reduce by about 50% the dictionary size.
+During the modeling, we might take that in account.
+
+# 5 - Conclusions of the EDA
+
+This exercise taught me 2 things:
+  * starting to understand the NLP and the libraries associated. I changed in the middle and I started to use Quanteda as I felt it more efficient and easy to us (for now).
+  * seeing that we **really** have to take care of the memory usage of the computer. When the dataset is getting bigger, the time to compute can be incredibly long and really pain in the ass. So finding the good mitigation for the sample size is important. I managed also to create a lot of "Checkpoints" in my pogram to clean the memory and start fresh with local files I am creating all along.
+  
+# 6 - MODEL
+
+## Generate ngrams
+```{r}
+library(tidyr)
+for (i in seq(4)){
+  ts <- textstat_frequency(dfm(tokens_ngrams(myTokens,
+                                                n = i,
+                                                skip = 0L,
+                                                concatenator = "_")))
+  
+  # Create 1 column by word
+  words <- as.data.frame(ts$feature)
+  colnames(words) <- "words"
+  ts  <- cbind(ts,(separate(data = words,
+                             col = words,
+                             sep = "_",
+                             remove = TRUE,
+                             into = c("word1", "word2", "word3", "word4"))))
+  ts <- ts[,!(names(ts) %in% c("group", "X", "feature", "rank"))]
+  write.csv(ts, file = paste("data/",i,"-ngrams.csv", sep = ""))
+}
+rm(ts, words, i)
+```
+
+```{r}
+for (i in seq(4)){
+  myFile <- paste("data/", i, "-ngrams.csv", sep="")
+  read.csv(file = myFile)
+  if (i==1){nam <- "uni"}
+  if (i==2){nam <- "bi"}
+  if (i==3){nam <- "tri"}
+  if (i==4){nam <- "quadri"}
+  assign(paste(nam,"grams", sep=""),read.csv(file = myFile))
+}
+
+```
+
+
+
+```{r}
+library(dplyr)
+
+
+predict <- function(input){
+  
+  ### Clean the input data
+  input <- tolower(gsub("[[:punct:]]","",input))
+  words <- strsplit(input," ")[[1]]
+  words <- words [! words %in% ""]
+  if (length(words) > 3){
+      words <- words[-(1:(length(words)-3))]
+  }
+  
+  ### Determine the lenghts and initialize my result panel
+  n = length(words)
+  r <- data.frame(Word=as.character(),Score=as.integer(),stringsAsFactors=FALSE)
+  
+  ### For 3 words
+  if (n == 3){
+    result <- quadrigrams %>% filter(word1 == words[1])%>% filter(word2 == words[2])%>% filter(word3 == words[3])
+    sumcount <- sum(result$frequency)
+    result <- result %>% top_n(5, frequency) %>% mutate(Score = frequency / sumcount) %>% select(word4, Score)
+    colnames(result) <- c("Word", "Score")
+    if (dim(result)[1] < 5){
+        words <- words[-1]
+    }
+    r <- rbind(r, result)
+  }
+  
+  ### For 2 words
+  if (n == 2){
+    result <- trigrams %>% filter(word1 == words[1])%>% filter(word2 == words[2])
+    sumcount <- sum(result$frequency)
+    result <- result %>% top_n(5, frequency) %>% mutate(Score = frequency / sumcount * 0.4^(n-2)) %>% select(word3, Score)
+    colnames(result) <- c("Word", "Score")
+    if (dim(result)[1] < 5){
+        words <- words[-1]
+    }
+    r <- rbind(r, result)
+  }
+  
+  ### For 1 word
+  if (n == 1){
+    result <- bigrams %>% filter(word1 == words[1])
+    sumcount <- sum(result$frequency)
+    result <- result %>% top_n(5, frequency) %>% mutate(Score = frequency / sumcount * 0.4^(n-1)) %>% select(word2, Score)
+    colnames(result) <- c("Word", "Score")
+    if (dim(result)[1] < 5){
+        words <- words[-1]
+    }
+    r <- rbind(r, result)
+  }
+
+    ### For 0 word
+  if (n == 0){
+    result <- unigrams
+    sumcount <- sum(result$frequency)
+    result <- result %>% top_n(5, frequency) %>% mutate(Score = frequency / sumcount * 0.4^(n)) %>% select(word1, Score)
+    colnames(result) <- c("Word", "Score")
+    if (dim(result)[1] < 5){
+        words <- words[-1]
+    }
+    r <- rbind(r, result)
+  }
+  
+input
+r
+}
+
+testlist <- list("one of the", "trump", "she is", "danger", "dangerous", "batman", "pour", "", "lol")
+lapply(testlist, predict)
+
+```
+
